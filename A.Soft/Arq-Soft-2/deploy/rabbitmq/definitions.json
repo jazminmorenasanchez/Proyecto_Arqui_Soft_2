@@ -1,0 +1,19 @@
+{
+  "users": [],
+  "vhosts": [
+    { "name": "/" }
+  ],
+  "permissions": [],
+  "parameters": [],
+  "policies": [],
+  "queues": [
+    { "name": "search_sync", "vhost": "/", "durable": true, "auto_delete": false, "arguments": {} }
+  ],
+  "exchanges": [
+    { "name": "activities.events", "vhost": "/", "type": "topic", "durable": true, "auto_delete": false, "internal": false, "arguments": {} }
+  ],
+  "bindings": [
+    { "source": "activities.events", "vhost": "/", "destination": "search_sync", "destination_type": "queue", "routing_key": "activity.*", "arguments": {} },
+    { "source": "activities.events", "vhost": "/", "destination": "search_sync", "destination_type": "queue", "routing_key": "session.*",   "arguments": {} }
+  ]
+}
