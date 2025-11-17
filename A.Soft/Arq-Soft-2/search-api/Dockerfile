@@ -8,5 +8,5 @@ RUN CGO_ENABLED=0 go build -o search-api ./cmd/api
 FROM alpine:3.19
 WORKDIR /app
 COPY --from=builder /app/search-api /app/search-api
-EXPOSE 8080
+EXPOSE 8083
 ENTRYPOINT ["/app/search-api"]

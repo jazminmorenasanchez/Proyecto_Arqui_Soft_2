@@ -56,7 +56,8 @@ func (c *SessionController) CreateSession(ctx *gin.Context) {
 	}
 	s.ID = id
 
-	c.publishEvent("create", s.ActivityID, s.ID)
+	// Ya no publicamos eventos de sesiones para search-api (solo indexamos actividades)
+	// c.publishEvent("create", s.ActivityID, s.ID)
 	ctx.JSON(http.StatusCreated, s)
 }
 
@@ -109,7 +110,8 @@ func (c *SessionController) UpdateSession(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.publishEvent("update", update.ActivityID, id)
+	// Ya no publicamos eventos de sesiones para search-api (solo indexamos actividades)
+	// c.publishEvent("update", update.ActivityID, id)
 	ctx.JSON(http.StatusOK, update)
 }
 
@@ -121,17 +123,11 @@ func (c *SessionController) DeleteSession(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid session id format"})
 		return
 	}
-	session, err := c.service.GetSessionByID(ctx, id)
-	if err != nil {
-		ctx.JSON(http.StatusNotFound, gin.H{"error": "sesión no encontrada"})
-		return
-	}
 
 	if err := c.service.DeleteSession(ctx, id); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
-	c.publishEvent("delete", session.ActivityID, id)
 	ctx.JSON(http.StatusOK, gin.H{"deleted": id})
 }
 

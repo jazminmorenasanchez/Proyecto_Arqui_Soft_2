@@ -248,7 +248,7 @@ docker compose down -v
 #### Variables de Entorno
 | Variable | Descripción | Valor por Defecto |
 |----------|-------------|-------------------|
-| `SEARCH_API_PORT` | Puerto del servidor HTTP | `8080` |
+| `SEARCH_API_PORT` | Puerto del servidor HTTP | `8083` |
 | `SOLR_URL` | URL de Apache Solr | `http://solr:8983/solr/sporthub_core` |
 | `MEMCACHED_ADDR` | Dirección de Memcached | `memcached:11211` |
 | `CACHE_TTL_SECONDS` | TTL del caché en segundos | `60` |
@@ -256,7 +256,7 @@ docker compose down -v
 | `RABBIT_EXCHANGE` | Exchange de RabbitMQ | `activities.events` |
 | `RABBIT_QUEUE` | Cola de RabbitMQ | `search_sync` |
 | `RABBIT_ROUTING_KEY` | Routing key para RabbitMQ | `#` |
-| `ACTIVITIES_API_BASE` | URL base del Activities API | `http://activities-api:8080` |
+| `ACTIVITIES_API_BASE` | URL base del Activities API | `http://activities-api:8082` |
 
 #### Arquitectura por Capas
 

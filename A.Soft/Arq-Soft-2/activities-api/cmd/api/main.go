@@ -50,7 +50,7 @@ func main() {
 	// RegisterSessionRoutes registra /activities/:activityId/sessions
 	// que debe registrarse ANTES de /activities/:id
 	controllers.RegisterSessionRoutes(r, sesSvc, actSvc, rmq.GetChannel(), cfg.JWTSecret)
-	controllers.RegisterActivityRoutes(r, actSvc, cfg)
+	controllers.RegisterActivityRoutes(r, actSvc, sesSvc, cfg)
 	controllers.RegisterEnrollmentRoutes(r, enrSvc, cfg.JWTSecret)
 
 	port := cfg.Port

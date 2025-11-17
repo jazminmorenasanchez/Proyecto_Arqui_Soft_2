@@ -23,6 +23,7 @@
   <field name="_version_" type="plong" indexed="true" stored="true" docValues="true"/>
   <field name="id"            type="string"       indexed="true" stored="true"  required="true"/>
   <field name="activity_id"   type="string"       indexed="true" stored="true"/>
+  <!-- session_id: campo opcional, generalmente vacío. Solo se indexan actividades, no sesiones -->
   <field name="session_id"    type="string"       indexed="true" stored="true"/>
   <field name="name_txt"      type="text_general" indexed="true" stored="true"/>
   <field name="sport_s"       type="string"       indexed="true" stored="true"/>

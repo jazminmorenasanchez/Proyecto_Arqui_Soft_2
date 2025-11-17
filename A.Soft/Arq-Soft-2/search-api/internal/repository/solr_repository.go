@@ -32,22 +32,65 @@ type solrResponse struct {
 
 func (r *SolrRepo) Search(ctx context.Context, q, sport, site, date, sort string, page, size int) (*domain.Result, error) {
 	params := url.Values{}
+	
+	// Usar edismax query parser para búsquedas más flexibles y mejor relevancia
+	params.Set("defType", "edismax")
+	
+	// Con edismax, usamos las palabras simples y dejamos que edismax haga el matching
+	// El analyzer de Solr (LowerCaseFilterFactory) hace que la búsqueda sea case-insensitive
 	query := "*:*"
+	var cleanWords []string
 	if q != "" {
-		// Búsqueda parcial usando wildcards para permitir coincidencias parciales
-		// Para búsquedas con múltiples palabras, usamos AND para que todas las palabras coincidan
-		// Escapamos caracteres especiales pero preservamos espacios para búsqueda de múltiples palabras
-		words := strings.Fields(q) // Divide la query en palabras individuales
-		var conditions []string
-		for _, word := range words {
-			escaped := escapeForSolr(word)
-			conditions = append(conditions, fmt.Sprintf("name_txt:*%s*", escaped))
-		}
-		if len(conditions) > 0 {
-			query = strings.Join(conditions, " AND ")
+		// Limpiar y normalizar la query (convertir a minúsculas para consistencia)
+		// Aunque el analyzer lo hace, es bueno normalizar aquí también
+		q = strings.TrimSpace(strings.ToLower(q))
+		if q != "" {
+			// Dividir la query en palabras
+			words := strings.Fields(q)
+			for _, word := range words {
+				// Escapar solo caracteres especiales que puedan romper la query
+				escaped := escapeForSolrQuery(word)
+				if escaped != "" {
+					cleanWords = append(cleanWords, escaped)
+				}
+			}
+			if len(cleanWords) > 0 {
+				// Con edismax, pasamos las palabras separadas por espacios
+				// edismax buscará en los campos especificados en qf usando el analyzer
+				query = strings.Join(cleanWords, " ")
+			}
 		}
 	}
 	params.Set("q", query)
+	
+	// Configurar campos de búsqueda para edismax (query fields)
+	// edismax buscará en estos campos cuando se use el parámetro q
+	// El analyzer text_general con LowerCaseFilterFactory hace que la búsqueda sea case-insensitive
+	// Usamos name_txt con mayor relevancia (^2) para que coincidencias en el nombre tengan más peso
+	params.Set("qf", "name_txt^2 sport_s^1 site_s^1 instructor_s^1")
+	
+	// Configurar campos de frase para boosting de coincidencias exactas
+	// Esto da más relevancia a frases completas que coincidan
+	params.Set("pf", "name_txt^3")
+	
+	// Minimum match dinámico según el número de palabras:
+	// - 1 palabra: mm=1 (búsqueda parcial flexible - permite encontrar "futbol" en "futbol 5" y "futbol 7")
+	// - 2+ palabras: mm=100% (búsqueda exacta - todas las palabras deben coincidir)
+	// Esto asegura que búsquedas exactas como "Futbol 5 Gran 7" solo devuelvan resultados que contengan todas las palabras
+	if len(cleanWords) == 1 {
+		// Búsqueda parcial: al menos una palabra debe coincidir
+		params.Set("mm", "1")
+	} else if len(cleanWords) > 1 {
+		// Búsqueda exacta: todas las palabras deben coincidir
+		params.Set("mm", "100%")
+	} else {
+		// Sin palabras (query vacía): mantener comportamiento por defecto
+		params.Set("mm", "1")
+	}
+	
+	// Usar el operador OR por defecto para que cualquier palabra coincida
+	// Esto es importante para búsquedas parciales
+	params.Set("q.op", "OR")
 
 	var fqs []string
 	if sport != "" {
@@ -76,13 +119,16 @@ func (r *SolrRepo) Search(ctx context.Context, q, sport, site, date, sort string
 	params.Set("wt", "json")
 
 	u := fmt.Sprintf("%s/select?%s", r.base, params.Encode())
+	log.Printf("[solr] Search query: %s", u)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	resp, err := r.http.Do(req)
 	if err != nil {
+		log.Printf("[solr] Search error: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
+	log.Printf("[solr] Search response status: %d, body length: %d", resp.StatusCode, len(b))
 
 	var sr solrResponse
 	if err := json.Unmarshal(b, &sr); err != nil {
@@ -90,6 +136,7 @@ func (r *SolrRepo) Search(ctx context.Context, q, sport, site, date, sort string
 	}
 
 	out := &domain.Result{Total: sr.Response.NumFound, Page: page, Size: size}
+	log.Printf("[solr] Found %d documents, returning %d", sr.Response.NumFound, len(sr.Response.Docs))
 	for _, d := range sr.Response.Docs {
 		doc := domain.SearchDoc{
 			ID:         asString(d["id"]),
@@ -106,6 +153,7 @@ func (r *SolrRepo) Search(ctx context.Context, q, sport, site, date, sort string
 			Tags:       asStrings(d["tags_ss"]),
 			UpdatedAt:  asString(d["updated_dt"]),
 		}
+		log.Printf("[solr] Found doc: id=%s, activity_id=%s, name=%s", doc.ID, doc.ActivityID, doc.Name)
 		out.Docs = append(out.Docs, doc)
 	}
 	return out, nil
@@ -119,17 +167,23 @@ func (r *SolrRepo) Upsert(ctx context.Context, docs ...domain.SearchDoc) error {
 		solrDoc := map[string]any{
 			"id":            doc.ID,
 			"activity_id":   doc.ActivityID,
-			"session_id":    doc.SessionID,
 			"name_txt":      doc.Name,
 			"sport_s":       doc.Sport,
 			"site_s":        doc.Site,
 			"instructor_s":  doc.Instructor,
-			"start_dt":      doc.StartAt,
-			"end_dt":        doc.EndAt,
 			"difficulty_i":  doc.Difficulty,
 			"price_f":      doc.Price,
 			"tags_ss":       doc.Tags,
 			"updated_dt":    doc.UpdatedAt,
+		}
+		// No incluimos session_id: no indexamos sesiones, solo actividades
+		// Solo incluir campos de fecha si tienen valores válidos (no vacíos)
+		// Solr rechaza strings vacíos para campos de tipo pdate
+		if doc.StartAt != "" {
+			solrDoc["start_dt"] = doc.StartAt
+		}
+		if doc.EndAt != "" {
+			solrDoc["end_dt"] = doc.EndAt
 		}
 		solrDocs = append(solrDocs, solrDoc)
 	}
@@ -188,10 +242,23 @@ func (r *SolrRepo) DeleteByID(ctx context.Context, id string) error {
 
 func escape(s string) string { return strings.ReplaceAll(s, " ", "\\ ") }
 
-// escapeForSolr escapa caracteres especiales de Solr y permite búsqueda parcial
+// escapeForSolr escapa caracteres especiales de Solr (para uso con wildcards)
 func escapeForSolr(s string) string {
 	// Escapar caracteres especiales de Solr: + - && || ! ( ) { } [ ] ^ " ~ * ? : \
 	specialChars := []string{"+", "-", "&&", "||", "!", "(", ")", "{", "}", "[", "]", "^", "\"", "~", "*", "?", ":", "\\"}
+	result := s
+	for _, char := range specialChars {
+		result = strings.ReplaceAll(result, char, "\\"+char)
+	}
+	return result
+}
+
+// escapeForSolrQuery escapa caracteres especiales para queries con edismax
+// NO escapa * porque edismax no usa wildcards en el campo q
+func escapeForSolrQuery(s string) string {
+	// Escapar solo caracteres que pueden romper la query de edismax
+	// NO escapamos * porque no lo usamos con edismax
+	specialChars := []string{"+", "-", "&&", "||", "!", "(", ")", "{", "}", "[", "]", "^", "\"", "~", "?", ":", "\\"}
 	result := s
 	for _, char := range specialChars {
 		result = strings.ReplaceAll(result, char, "\\"+char)

@@ -78,40 +78,49 @@ func (c *Consumer) Start(ctx context.Context, conn *amqp.Connection, queue, exch
 func (c *Consumer) handle(ctx context.Context, ev Event) {
 	log.Printf("[consumer] Processing event: op=%s, activityId=%s, sessionId=%s", ev.Op, ev.ActivityID, ev.SessionID)
 	
-	// Validar que SessionID no esté vacío
-	if ev.SessionID == "" {
-		log.Printf("[consumer] WARN: event %s has empty sessionId, skipping", ev.Op)
+	// DISEÑO: Solo indexamos actividades en Solr, no sesiones individuales.
+	// Las sesiones se indexan como parte de la actividad (usando la primera sesión disponible).
+	// Por lo tanto, ignoramos eventos de sesiones individuales.
+	if ev.SessionID != "" && ev.SessionID != "0" {
+		log.Printf("[consumer] INFO: ignoring session event (sessionId=%s). Only activity events are indexed in Solr.", ev.SessionID)
+		return
+	}
+	
+	// Validar que tenemos activityId
+	if ev.ActivityID == "" {
+		log.Printf("[consumer] WARN: event %s has empty activityId, skipping", ev.Op)
 		return
 	}
 	
 	switch ev.Op {
 	case "delete":
-		log.Printf("[consumer] Deleting session %s from Solr", ev.SessionID)
-		_ = c.repo.DeleteByID(ctx, ev.SessionID)
-		c.cacheL.Delete(ev.SessionID)
-		c.cacheD.Delete(ev.SessionID)
-		log.Printf("[consumer] SUCCESS: deleted session %s", ev.SessionID)
+		log.Printf("[consumer] Deleting activity %s from Solr", ev.ActivityID)
+		_ = c.repo.DeleteByID(ctx, ev.ActivityID)
+		c.cacheL.Delete(ev.ActivityID)
+		c.cacheD.Delete(ev.ActivityID)
+		log.Printf("[consumer] SUCCESS: deleted activity %s", ev.ActivityID)
 	default: // create/update
-		log.Printf("[consumer] Fetching search-doc for session %s from %s/sessions/%s/search-doc", ev.SessionID, c.activity, ev.SessionID)
-		doc, err := c.fetchDoc(ev.SessionID)
+		log.Printf("[consumer] Fetching search-doc for activity %s from %s/activities/%s/search-doc", ev.ActivityID, c.activity, ev.ActivityID)
+		doc, err := c.fetchActivityDoc(ev.ActivityID)
 		if err != nil {
-			log.Printf("[consumer] ERROR: fetch error for session %s: %v", ev.SessionID, err)
+			log.Printf("[consumer] ERROR: fetch error for activity %s: %v", ev.ActivityID, err)
 			return
 		}
 		log.Printf("[consumer] Fetched doc: id=%s, activityId=%s, name=%s", doc.ID, doc.ActivityID, doc.Name)
-		log.Printf("[consumer] Indexing session %s in Solr", ev.SessionID)
+		log.Printf("[consumer] Indexing activity %s in Solr", ev.ActivityID)
 		log.Printf("[consumer] Document to index: id=%s, activityId=%s, name=%s, sport=%s, site=%s, start_dt=%s", 
 			doc.ID, doc.ActivityID, doc.Name, doc.Sport, doc.Site, doc.StartAt)
 		if err := c.repo.Upsert(ctx, *doc); err != nil {
-			log.Printf("[consumer] ERROR: solr upsert error for session %s: %v", ev.SessionID, err)
+			log.Printf("[consumer] ERROR: solr upsert error for activity %s: %v", ev.ActivityID, err)
 			return
 		}
-		log.Printf("[consumer] SUCCESS: indexed session %s (activityId=%s, name=%s)", ev.SessionID, doc.ActivityID, doc.Name)
+		log.Printf("[consumer] SUCCESS: indexed activity %s (name=%s)", ev.ActivityID, doc.Name)
 	}
 }
 
-func (c *Consumer) fetchDoc(sessionID string) (*domain.SearchDoc, error) {
-	url := fmt.Sprintf("%s/sessions/%s/search-doc", c.activity, sessionID)
+// fetchActivityDoc obtiene el search-doc de una actividad
+func (c *Consumer) fetchActivityDoc(activityID string) (*domain.SearchDoc, error) {
+	url := fmt.Sprintf("%s/activities/%s/search-doc", c.activity, activityID)
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err

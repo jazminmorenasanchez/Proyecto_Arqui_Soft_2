@@ -52,7 +52,7 @@ services:
     volumes:
       - solr_data:/var/solr
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8983/solr/admin/cores?action=STATUS\\&core=${SOLR_CORE} | grep -q '\"name\":\"${SOLR_CORE}\"'"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8983/solr/admin/cores?action=STATUS | grep -q '\"name\":\"sporthub_core\"'"]
       interval: 15s
       timeout: 5s
       retries: 20
@@ -152,7 +152,7 @@ services:
       RABBIT_URL: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672/"
       RABBIT_EXCHANGE: activities.events
       RABBIT_QUEUE: search_sync
-      RABBIT_ROUTING_KEY: "activity.session.*"
+      RABBIT_ROUTING_KEY: "activity.*"
       ACTIVITIES_API_BASE: "http://activities-api:8082"
     ports:
       - "8083:8083"

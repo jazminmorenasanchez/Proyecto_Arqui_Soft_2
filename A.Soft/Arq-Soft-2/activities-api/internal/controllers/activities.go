@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sporthub/activities-api/internal/config"
@@ -15,7 +16,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-func RegisterActivityRoutes(r *gin.Engine, svc *services.ActivitiesService, cfg *config.Config) {
+func RegisterActivityRoutes(r *gin.Engine, svc *services.ActivitiesService, sesSvc *services.SessionsService, cfg *config.Config) {
 	// Public listing with pagination
 	pub := r.Group("/activities")
 	pub.GET("", func(c *gin.Context) {
@@ -45,6 +46,41 @@ func RegisterActivityRoutes(r *gin.Engine, svc *services.ActivitiesService, cfg 
 			return
 		}
 		c.JSON(http.StatusOK, out)
+	})
+
+	// GET /activities/:id/search-doc - Endpoint para search-api
+	pub.GET("/:id/search-doc", func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid activity id format"})
+			return
+		}
+
+		activity, err := svc.GetByID(c, id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "activity not found"})
+			return
+		}
+
+		// Mapear actividad al formato SearchDoc para Solr
+		// No incluimos sesiones: solo indexamos actividades por nombre
+		doc := domain.SearchDoc{
+			ID:         fmt.Sprintf("%d", activity.ID),
+			ActivityID: fmt.Sprintf("%d", activity.ID),
+			SessionID:  "", // Siempre vacío: no indexamos sesiones
+			Name:       activity.Nombre,
+			Sport:      activity.Categoria,
+			Site:       activity.Ubicacion,
+			Instructor: activity.Instructor,
+			StartAt:    "", // Vacío: no usamos fechas de sesiones en la búsqueda
+			EndAt:      "", // Vacío: no usamos fechas de sesiones en la búsqueda
+			Difficulty: 1,  // Valor por defecto
+			Price:      activity.PrecioBase,
+			Tags:       []string{},
+			UpdatedAt:  activity.UpdatedAt.Format(time.RFC3339),
+		}
+
+		c.JSON(http.StatusOK, doc)
 	})
 
 	// Protected admin routes
@@ -169,5 +205,15 @@ func RegisterActivityRoutes(r *gin.Engine, svc *services.ActivitiesService, cfg 
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	// Endpoint para reindexar todas las actividades en Solr
+	g.POST("/reindex", middleware.RequireAdmin(), func(c *gin.Context) {
+		count, err := svc.ReindexAll(c)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Reindexing triggered for %d activities", count), "count": count})
 	})
 }

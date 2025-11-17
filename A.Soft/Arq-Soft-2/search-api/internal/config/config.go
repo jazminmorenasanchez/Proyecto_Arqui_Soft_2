@@ -34,7 +34,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		Env:              envOr("ENV", "development"),
-		Port:             envOr("SEARCH_API_PORT", "8080"),
+		Port:             envOr("SEARCH_API_PORT", "8083"),
 		SolrURL:          envOr("SOLR_URL", "http://solr:8983/solr/sporthub_core"),
 		MemcachedAddr:    envOr("MEMCACHED_ADDR", "memcached:11211"),
 		CacheTTLSeconds:  envOrInt("CACHE_TTL_SECONDS", 60),
@@ -42,7 +42,7 @@ func Load() Config {
 		RabbitExchange:   envOr("RABBIT_EXCHANGE", "activities.events"),
 		RabbitQueue:      envOr("RABBIT_QUEUE", "search_sync"),
 		RabbitRoutingKey: envOr("RABBIT_ROUTING_KEY", "#"),
-		ActivitiesAPI:    envOr("ACTIVITIES_API_BASE", "http://activities-api:8080"),
+		ActivitiesAPI:    envOr("ACTIVITIES_API_BASE", "http://activities-api:8082"),
 		LogLevel:         envOr("LOG_LEVEL", "info"),
 	}
 }
